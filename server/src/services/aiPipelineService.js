@@ -1,0 +1,218 @@
+import { PrismaClient } from '@prisma/client';
+import { retrievalService } from './retrievalService.js';
+import { BusinessRuleEngine } from './businessRuleEngine.js';
+import { AIProviderFactory } from './ai/aiProvider.js';
+import { AuditService } from './auditService.js';
+import { logger } from '../utils/logger.js';
+
+const prisma = new PrismaClient();
+
+export class AIPipelineService {
+  /**
+   * Runs the complete end-to-end AI Resolution Pipeline for a given ticket ID
+   */
+  static async runPipeline(ticketId, triggerActor = 'Noise Support Agent') {
+    logger.info(`Starting AI Resolution Pipeline for ticket: ${ticketId}`);
+
+    // Stage 1: Ticket Ingestion
+    const ticket = await prisma.supportTicket.findUnique({
+      where: { id: ticketId },
+      include: {
+        customer: {
+          include: {
+            orders: {
+              include: { product: true }
+            }
+          }
+        },
+        order: {
+          include: { product: true }
+        },
+        product: true,
+        messages: {
+          orderBy: { sentAt: 'asc' }
+        }
+      }
+    });
+
+    if (!ticket) {
+      throw new Error(`Ticket with ID ${ticketId} not found`);
+    }
+
+    // Update status to PROCESSING
+    await prisma.supportTicket.update({
+      where: { id: ticketId },
+      data: { aiStatus: 'ANALYZING', status: 'PROCESSING' }
+    });
+
+    try {
+      // Stage 2: Intent & Entity Extraction
+      const customerMessagesText = ticket.messages
+        .filter(m => m.senderType === 'CUSTOMER')
+        .map(m => m.messageText)
+        .join(' ');
+      const fullText = `${ticket.subject} ${customerMessagesText}`;
+
+      const { extractedOrderNumber, detectedCategory } = BusinessRuleEngine.extractEntities(ticket);
+
+      // Attempt linking order if missing
+      let order = ticket.order;
+      if (!order && extractedOrderNumber) {
+        const foundOrder = await prisma.order.findUnique({
+          where: { orderNumber: extractedOrderNumber },
+          include: { product: true }
+        });
+        if (foundOrder) {
+          order = foundOrder;
+          // Associate order to ticket
+          await prisma.supportTicket.update({
+            where: { id: ticketId },
+            data: { orderId: foundOrder.id, productId: foundOrder.productId }
+          });
+          logger.info(`Extracted and linked order ${extractedOrderNumber} to ticket ${ticketId}`);
+        }
+      }
+
+      // If order has product, resolve product
+      const product = order?.product || ticket.product;
+
+      // Stage 3: Context Retrieval (TF-IDF & Policy Match)
+      const retrievedPolicies = await retrievalService.retrieveRelevantPolicies(
+        fullText,
+        detectedCategory,
+        4
+      );
+
+      // Stage 4: Deterministic Evidence Evaluation & Business Rules
+      const ruleEvaluation = BusinessRuleEngine.evaluateRules({
+        ticket,
+        order,
+        product,
+        customerMessagesText
+      });
+
+      // Assemble Pipeline Context
+      const pipelineContext = {
+        ticket,
+        customer: ticket.customer,
+        order,
+        product,
+        retrievedPolicies,
+        ruleEvaluation
+      };
+
+      // Stage 5: Resolution Generation via replaceable AI Provider
+      const aiProvider = AIProviderFactory.getProvider();
+      let draftResult;
+
+      try {
+        draftResult = await aiProvider.generateResolutionDraft(pipelineContext);
+      } catch (aiErr) {
+        logger.warn('Primary AI Provider generation encountered error, falling back to deterministic mock generator:', aiErr);
+        // Fallback to deterministic mock provider
+        const { MockAIProvider } = await import('./ai/mockProvider.js');
+        const fallbackProvider = new MockAIProvider();
+        draftResult = await fallbackProvider.generateResolutionDraft(pipelineContext);
+      }
+
+      // Combine retrieved evidence and order evidence
+      const finalEvidence = [...draftResult.evidence];
+
+      // Add order citation if available and not already cited
+      if (order && !finalEvidence.some(e => e.sourceId === order.orderNumber)) {
+        finalEvidence.push({
+          sourceType: 'ORDER',
+          sourceId: order.orderNumber,
+          sourceTitle: `Order #${order.orderNumber} - ${product?.name || 'Wearable'}`,
+          excerpt: `Status: ${order.orderStatus}, Purchased: ${new Date(order.purchaseDate).toLocaleDateString('en-IN')}, Amount: Rs. ${order.orderAmount}`,
+          relevanceScore: 0.96,
+          explanation: 'Official verified order and invoice record from Noise database.'
+        });
+      }
+
+      // Merge policy flags from rule engine
+      const combinedFlags = Array.from(new Set([
+        ...(draftResult.policyFlags || []),
+        ...(ruleEvaluation.flags || [])
+      ]));
+
+      const combinedMissingInfo = Array.from(new Set([
+        ...(draftResult.missingInformation || []),
+        ...(ruleEvaluation.missingInformation || [])
+      ]));
+
+      // Determine next ticket status
+      // If requires human review or flags/missing info exist -> DRAFT_READY or NEEDS_REVIEW
+      const nextStatus = (ruleEvaluation.isPromptInjection || combinedMissingInfo.length > 0 || combinedFlags.length > 1)
+        ? 'NEEDS_REVIEW'
+        : 'DRAFT_READY';
+
+      // Stage 6: Persist ResolutionDraft
+      const createdDraft = await prisma.resolutionDraft.create({
+        data: {
+          ticketId: ticket.id,
+          ticketSummary: draftResult.ticketSummary,
+          detectedCategory: draftResult.category,
+          urgency: draftResult.priority === 'URGENT' ? 'CRITICAL' : draftResult.priority,
+          recommendedAction: draftResult.recommendedAction,
+          draftReply: draftResult.draftReply,
+          editableReply: draftResult.draftReply,
+          confidence: draftResult.confidence,
+          requiresHumanReview: true, // Always true!
+          missingInformation: JSON.stringify(combinedMissingInfo),
+          evidenceCitations: JSON.stringify(finalEvidence),
+          policyFlags: JSON.stringify(combinedFlags),
+          generatedBy: aiProvider.name
+        }
+      });
+
+      // Update SupportTicket
+      const updatedTicket = await prisma.supportTicket.update({
+        where: { id: ticket.id },
+        data: {
+          status: nextStatus,
+          aiStatus: 'COMPLETED',
+          confidenceScore: draftResult.confidence,
+          category: draftResult.category
+        },
+        include: {
+          customer: true,
+          order: { include: { product: true } },
+          product: true,
+          messages: true,
+          drafts: { orderBy: { createdAt: 'desc' } }
+        }
+      });
+
+      // Audit Log Event
+      await AuditService.logEvent({
+        ticketId: ticket.id,
+        eventType: 'DRAFT_GENERATED',
+        actorType: 'AI',
+        actorName: `Noise Resolve AI (${aiProvider.name})`,
+        metadata: {
+          draftId: createdDraft.id,
+          action: draftResult.recommendedAction,
+          confidence: draftResult.confidence,
+          status: nextStatus
+        }
+      });
+
+      logger.info(`AI Resolution Draft generated successfully for ticket ${ticketId}. Status: ${nextStatus}`);
+
+      return {
+        ticket: updatedTicket,
+        draft: createdDraft,
+        evidence: finalEvidence,
+        ruleEvaluation
+      };
+    } catch (pipelineErr) {
+      logger.error(`AI Resolution Pipeline failed for ticket ${ticketId}:`, pipelineErr);
+      await prisma.supportTicket.update({
+        where: { id: ticketId },
+        data: { aiStatus: 'FAILED', status: 'NEEDS_REVIEW' }
+      });
+      throw pipelineErr;
+    }
+  }
+}

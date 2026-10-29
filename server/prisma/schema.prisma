@@ -1,0 +1,149 @@
+// Prisma Schema for Noise Resolve AI Copilot
+// Supports SQLite by default for zero-friction setup, easily switchable to PostgreSQL
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Customer {
+  id          String   @id @default(cuid())
+  externalId  String   @unique
+  name        String
+  email       String   @unique
+  phone       String?
+  tier        String   @default("Standard") // Standard, VIP, Enterprise
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orders      Order[]
+  tickets     SupportTicket[]
+}
+
+model Product {
+  id                    String   @id @default(cuid())
+  sku                   String   @unique
+  name                  String
+  category              String   // SMARTWATCH, AUDIO, SMART_RING, ACCESSORIES
+  modelNumber           String
+  warrantyMonths        Int      @default(12)
+  returnWindowDays      Int      @default(7)
+  replacementWindowDays Int      @default(7)
+  description           String?
+  createdAt             DateTime @default(now())
+
+  orders                Order[]
+  tickets               SupportTicket[]
+}
+
+model Order {
+  id               String   @id @default(cuid())
+  orderNumber      String   @unique
+  customerId       String
+  productId        String
+  purchaseDate     DateTime
+  deliveryDate     DateTime?
+  orderStatus      String   // DELIVERED, IN_TRANSIT, CANCELLED, RETURNED, SHIPPED
+  trackingNumber   String?
+  carrier          String?  // BlueDart, Delhivery, DTDC
+  deliveryAddress  String?
+  orderAmount      Float
+  currency         String   @default("INR")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  customer         Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  product          Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tickets          SupportTicket[]
+}
+
+model SupportTicket {
+  id               String   @id @default(cuid())
+  ticketNumber     String   @unique
+  customerId       String
+  orderId          String?
+  productId        String?
+  subject          String
+  category         String   // DELIVERY_DELAY, REFUND_REQUEST, RETURN_REQUEST, WARRANTY_CLAIM, DAMAGED_PRODUCT, BATTERY_CHARGING, BLUETOOTH_PAIRING, GENERAL_INQUIRY, MALICIOUS_INJECTION
+  priority         String   @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  status           String   @default("NEW")    // NEW, PROCESSING, DRAFT_READY, NEEDS_REVIEW, APPROVED, REJECTED, RESOLVED
+  aiStatus         String   @default("PENDING") // PENDING, ANALYZING, COMPLETED, FAILED
+  confidenceScore  Float?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  resolvedAt       DateTime?
+
+  customer         Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  order            Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  product          Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  messages         TicketMessage[]
+  drafts           ResolutionDraft[]
+  auditLogs        AuditLog[]
+}
+
+model TicketMessage {
+  id          String   @id @default(cuid())
+  ticketId    String
+  senderType  String   // CUSTOMER, AGENT, SYSTEM
+  senderName  String
+  messageText String
+  sentAt      DateTime @default(now())
+
+  ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+}
+
+model PolicyDocument {
+  id            String   @id // Stable IDs: POL-RET-01, POL-REF-01, POL-WAR-01, KB-BAT-01, etc.
+  title         String
+  category      String   // RETURN, REFUND, WARRANTY, REPLACEMENT, SHIPPING, DAMAGED, TROUBLESHOOTING
+  content       String
+  version       String   @default("1.0")
+  effectiveDate DateTime
+  tags          String   // Comma separated tags
+  isDemoOnly    Boolean  @default(true)
+  metadataJson  String?  // JSON string for specific structured criteria
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model ResolutionDraft {
+  id                  String   @id @default(cuid())
+  ticketId            String
+  ticketSummary       String
+  detectedCategory    String
+  urgency             String   // LOW, MEDIUM, HIGH, CRITICAL
+  recommendedAction   String   // e.g. "REPLACE_DEVICE", "REFUND_APPROVED", "TROUBLESHOOTING_GUIDE", "REQUEST_INFO"
+  draftReply          String
+  editableReply       String
+  confidence          Float
+  requiresHumanReview Boolean  @default(true)
+  missingInformation String   @default("[]") // JSON string array
+  evidenceCitations   String   @default("[]") // JSON string array of evidence objects
+  policyFlags         String   @default("[]") // JSON string array of warning/flag items
+  version             Int      @default(1)
+  generatedBy         String   @default("AI_MOCK") // AI_MOCK, AI_GEMINI, AI_OPENAI
+  approvedAt          DateTime?
+  approvedBy          String?
+  rejectedAt          DateTime?
+  rejectionReason     String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  ticket              SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  ticketId     String
+  eventType    String   // DRAFT_GENERATED, DRAFT_EDITED, DRAFT_APPROVED, DRAFT_REJECTED, TICKET_RESOLVED, STATUS_CHANGED
+  actorType    String   // AI, AGENT, SYSTEM
+  actorName    String
+  metadataJson String?
+  timestamp    DateTime @default(now())
+
+  ticket       SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+}

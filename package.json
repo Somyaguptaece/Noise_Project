@@ -1,0 +1,27 @@
+{
+  "name": "noise-resolve-ai",
+  "version": "1.0.0",
+  "description": "Noise Resolve AI — Production-Quality AI Customer Support Resolution Copilot",
+  "private": true,
+  "scripts": {
+    "setup": "npm --prefix server install && npm --prefix client install && npm --prefix server run setup && npm --prefix client run build",
+    "seed": "npm --prefix server run prisma:seed",
+    "test": "npm --prefix server test",
+    "build": "npm --prefix client run build",
+    "start": "npm --prefix server start",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev"
+  },
+  "keywords": [
+    "noise",
+    "ai-copilot",
+    "rag",
+    "customer-support",
+    "fullstack",
+    "express",
+    "react",
+    "prisma"
+  ],
+  "author": "Noise Intern Candidate",
+  "license": "MIT"
+}
