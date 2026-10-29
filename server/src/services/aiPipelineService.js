@@ -142,26 +142,35 @@ export class AIPipelineService {
       ]));
 
       // Determine next ticket status
-      // If requires human review or flags/missing info exist -> DRAFT_READY or NEEDS_REVIEW
-      const nextStatus = (ruleEvaluation.isPromptInjection || combinedMissingInfo.length > 0 || combinedFlags.length > 1)
+      // If requires human review, escalation flag, or flags/missing info exist -> NEEDS_REVIEW
+      const isEscalated = draftResult.escalationFlag || ruleEvaluation.escalationFlag || false;
+      const escalationReason = draftResult.escalationReason || ruleEvaluation.escalationReason || null;
+
+      const nextStatus = (isEscalated || ruleEvaluation.isPromptInjection || combinedMissingInfo.length > 0 || combinedFlags.length > 1)
         ? 'NEEDS_REVIEW'
         : 'DRAFT_READY';
 
-      // Stage 6: Persist ResolutionDraft
+      // Stage 6: Persist ResolutionDraft with complete 9-field structure
       const createdDraft = await prisma.resolutionDraft.create({
         data: {
           ticketId: ticket.id,
           ticketSummary: draftResult.ticketSummary,
           detectedCategory: draftResult.category,
-          urgency: draftResult.priority === 'URGENT' ? 'CRITICAL' : draftResult.priority,
+          customerIntent: draftResult.customerIntent || draftResult.category,
+          identifiedOrderOrDevice: draftResult.identifiedOrderOrDevice || (order ? order.orderNumber : null),
+          urgency: draftResult.priority === 'URGENT' ? 'CRITICAL' : (draftResult.priority || 'MEDIUM'),
           recommendedAction: draftResult.recommendedAction,
           draftReply: draftResult.draftReply,
           editableReply: draftResult.draftReply,
+          internalNextAction: draftResult.internalNextAction || 'Review evidence citations and verify order credentials.',
           confidence: draftResult.confidence,
           requiresHumanReview: true, // Always true!
+          escalationFlag: isEscalated,
+          escalationReason: escalationReason,
           missingInformation: JSON.stringify(combinedMissingInfo),
           evidenceCitations: JSON.stringify(finalEvidence),
           policyFlags: JSON.stringify(combinedFlags),
+          toolCalls: JSON.stringify(draftResult.toolCalls || []),
           generatedBy: aiProvider.name
         }
       });
@@ -184,7 +193,8 @@ export class AIPipelineService {
         }
       });
 
-      // Audit Log Event
+      // Audit Log Event with chosen tools and tool call metadata
+      const toolsUsed = (draftResult.toolCalls || []).map(t => t.toolName);
       await AuditService.logEvent({
         ticketId: ticket.id,
         eventType: 'DRAFT_GENERATED',
@@ -194,7 +204,12 @@ export class AIPipelineService {
           draftId: createdDraft.id,
           action: draftResult.recommendedAction,
           confidence: draftResult.confidence,
-          status: nextStatus
+          status: nextStatus,
+          escalationFlag: isEscalated,
+          escalationReason: escalationReason,
+          toolsUsed,
+          toolCallsCount: toolsUsed.length,
+          evidenceCount: finalEvidence.length
         }
       });
 

@@ -86,14 +86,15 @@ model SupportTicket {
 }
 
 model TicketMessage {
-  id          String   @id @default(cuid())
-  ticketId    String
-  senderType  String   // CUSTOMER, AGENT, SYSTEM
-  senderName  String
-  messageText String
-  sentAt      DateTime @default(now())
+  id              String   @id @default(cuid())
+  ticketId        String
+  senderType      String   // CUSTOMER, AGENT, SYSTEM
+  senderName      String
+  messageText     String
+  attachmentsJson String   @default("[]") // array of { type, filename, verifiedReceipt, url }
+  sentAt          DateTime @default(now())
 
-  ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticket          SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 }
 
 model PolicyDocument {
@@ -111,29 +112,35 @@ model PolicyDocument {
 }
 
 model ResolutionDraft {
-  id                  String   @id @default(cuid())
-  ticketId            String
-  ticketSummary       String
-  detectedCategory    String
-  urgency             String   // LOW, MEDIUM, HIGH, CRITICAL
-  recommendedAction   String   // e.g. "REPLACE_DEVICE", "REFUND_APPROVED", "TROUBLESHOOTING_GUIDE", "REQUEST_INFO"
-  draftReply          String
-  editableReply       String
-  confidence          Float
-  requiresHumanReview Boolean  @default(true)
-  missingInformation String   @default("[]") // JSON string array
-  evidenceCitations   String   @default("[]") // JSON string array of evidence objects
-  policyFlags         String   @default("[]") // JSON string array of warning/flag items
-  version             Int      @default(1)
-  generatedBy         String   @default("AI_MOCK") // AI_MOCK, AI_GEMINI, AI_OPENAI
-  approvedAt          DateTime?
-  approvedBy          String?
-  rejectedAt          DateTime?
-  rejectionReason     String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                      String   @id @default(cuid())
+  ticketId                String
+  ticketSummary           String
+  detectedCategory        String
+  customerIntent          String   @default("")
+  identifiedOrderOrDevice String?
+  urgency                 String   // LOW, MEDIUM, HIGH, CRITICAL
+  recommendedAction       String   // e.g. "REPLACE_DEVICE", "REFUND_APPROVED", "TROUBLESHOOTING_GUIDE", "REQUEST_INFO"
+  draftReply              String
+  editableReply           String
+  internalNextAction      String   @default("")
+  confidence              Float
+  requiresHumanReview     Boolean  @default(true)
+  escalationFlag          Boolean  @default(false)
+  escalationReason        String?
+  missingInformation     String   @default("[]") // JSON string array
+  evidenceCitations       String   @default("[]") // JSON string array of evidence objects
+  policyFlags             String   @default("[]") // JSON string array of warning/flag items
+  toolCalls               String   @default("[]") // JSON string array of tool execution records
+  version                 Int      @default(1)
+  generatedBy             String   @default("AI_MOCK") // AI_MOCK, AI_GEMINI, AI_OPENAI
+  approvedAt              DateTime?
+  approvedBy              String?
+  rejectedAt              DateTime?
+  rejectionReason         String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
-  ticket              SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticket                  SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 }
 
 model AuditLog {

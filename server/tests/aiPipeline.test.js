@@ -11,6 +11,7 @@ describe('AI Output Schema & Mock Provider Validation', () => {
       priority: 'MEDIUM',
       recommendedAction: 'PROVIDE_BATTERY_TROUBLESHOOTING',
       draftReply: 'Dear Customer,\n\nPlease follow the troubleshooting guidelines by using a 5V/1A adapter and resetting device.',
+      internalNextAction: 'Review customer response regarding 5V/1A adapter charging test and verify warranty status.',
       confidence: 0.92,
       requiresHumanReview: true,
       missingInformation: [],

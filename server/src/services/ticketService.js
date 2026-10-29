@@ -113,6 +113,89 @@ export class TicketService {
   }
 
   /**
+   * Add a follow-up message to a ticket (multi-turn conversation)
+   * Strips quoted email reply headers and updates ticket state.
+   */
+  static async addMessage(arg1, arg2 = {}) {
+    let ticketId;
+    let options = {};
+    if (typeof arg1 === 'string') {
+      ticketId = arg1;
+      options = arg2 || {};
+    } else if (arg1 && typeof arg1 === 'object') {
+      ticketId = arg1.ticketId;
+      options = arg1;
+    }
+
+    const {
+      messageText,
+      content,
+      senderType = 'CUSTOMER',
+      senderName,
+      attachments = []
+    } = options;
+
+    const rawText = messageText || content || '';
+
+    const ticket = await prisma.supportTicket.findUnique({
+      where: { id: ticketId },
+      include: { customer: true }
+    });
+
+    if (!ticket) {
+      throw new Error(`Ticket with ID ${ticketId} not found`);
+    }
+
+    const { BusinessRuleEngine } = await import('./businessRuleEngine.js');
+    const cleanedText = BusinessRuleEngine.cleanCustomerMessage(rawText);
+
+    const createdMsg = await prisma.ticketMessage.create({
+      data: {
+        ticketId,
+        senderType,
+        senderName: senderName || (senderType === 'CUSTOMER' ? ticket.customer.name : 'Support Specialist'),
+        messageText: cleanedText,
+        attachmentsJson: JSON.stringify(attachments),
+        sentAt: new Date()
+      }
+    });
+
+    // Update ticket state when new customer message arrives
+    const nextStatus = senderType === 'CUSTOMER' ? 'PROCESSING' : ticket.status;
+    const nextAiStatus = senderType === 'CUSTOMER' ? 'PENDING' : ticket.aiStatus;
+
+    const updatedTicket = await prisma.supportTicket.update({
+      where: { id: ticketId },
+      data: {
+        status: nextStatus,
+        aiStatus: nextAiStatus,
+        updatedAt: new Date()
+      },
+      include: {
+        customer: true,
+        order: { include: { product: true } },
+        product: true,
+        messages: { orderBy: { sentAt: 'asc' } },
+        drafts: { orderBy: { createdAt: 'desc' } }
+      }
+    });
+
+    await AuditService.logEvent({
+      ticketId,
+      eventType: senderType === 'CUSTOMER' ? 'CUSTOMER_MESSAGE_RECEIVED' : 'AGENT_MESSAGE_SENT',
+      actorType: senderType === 'CUSTOMER' ? 'CUSTOMER' : 'AGENT',
+      actorName: senderName || (senderType === 'CUSTOMER' ? ticket.customer.name : 'Support Specialist'),
+      metadata: {
+        messageId: createdMsg.id,
+        attachmentCount: attachments.length,
+        status: nextStatus
+      }
+    });
+
+    return { message: createdMsg, ticket: updatedTicket };
+  }
+
+  /**
    * Edit current draft text
    */
   static async editDraft(ticketId, editableReply, agentName = 'Support Agent') {

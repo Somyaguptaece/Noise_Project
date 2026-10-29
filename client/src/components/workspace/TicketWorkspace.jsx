@@ -15,7 +15,8 @@ export function TicketWorkspace({
   onEditDraft,
   onApproveDraft,
   onRejectDraft,
-  onResolveTicket
+  onResolveTicket,
+  onAddCustomerMessage
 }) {
   const [activeMobileTab, setActiveMobileTab] = useState('copilot'); // 'customer', 'copilot', 'evidence'
   const [showAuditModal, setShowAuditModal] = useState(false);
@@ -102,7 +103,7 @@ export function TicketWorkspace({
             activeMobileTab === 'customer' ? 'block' : 'hidden md:block'
           }`}
         >
-          <PanelACustomer ticket={ticket} />
+          <PanelACustomer ticket={ticket} onAddCustomerMessage={onAddCustomerMessage} />
         </div>
 
         {/* Panel B: AI Resolution Copilot (45% desktop -> col-span-5) */}

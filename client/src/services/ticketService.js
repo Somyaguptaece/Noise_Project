@@ -13,5 +13,7 @@ export const ticketService = {
   rejectDraft: (id, reason, agentName = 'Senior Support Specialist') =>
     api.post(`/tickets/${id}/reject`, { reason, agentName }),
   resolveTicket: (id, agentName = 'Senior Support Specialist', notes = '') =>
-    api.post(`/tickets/${id}/resolve`, { agentName, notes })
+    api.post(`/tickets/${id}/resolve`, { agentName, notes }),
+  addCustomerMessage: (id, content, senderName = 'Customer', senderType = 'CUSTOMER') =>
+    api.post(`/tickets/${id}/messages`, { content, senderName, senderType })
 };

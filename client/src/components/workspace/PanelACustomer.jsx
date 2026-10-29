@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   User,
   Mail,
@@ -9,14 +9,34 @@ import {
   Shield,
   Truck,
   CheckCircle2,
-  ExternalLink
+  ExternalLink,
+  Send,
+  MessageSquarePlus,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { formatDate, formatCurrency, timeAgo } from '../../utils/formatters.js';
 
-export function PanelACustomer({ ticket }) {
+export function PanelACustomer({ ticket, onAddCustomerMessage }) {
   const customer = ticket.customer;
   const currentOrder = ticket.order;
   const product = currentOrder?.product || ticket.product;
+
+  const [followUpText, setFollowUpText] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSimulator, setShowSimulator] = useState(false);
+
+  const handleSendReply = async (textToSend) => {
+    const text = textToSend || followUpText;
+    if (!text.trim() || !onAddCustomerMessage) return;
+    setIsSubmitting(true);
+    try {
+      await onAddCustomerMessage(text.trim());
+      setFollowUpText('');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="flex flex-col h-full bg-slate-50 border-r border-slate-200/80 overflow-y-auto">
@@ -165,6 +185,92 @@ export function PanelACustomer({ ticket }) {
               </div>
             );
           })}
+        </div>
+
+        {/* Multi-turn Follow-up Simulator */}
+        <div className="mt-4 pt-3 border-t border-slate-200">
+          <button
+            type="button"
+            onClick={() => setShowSimulator(!showSimulator)}
+            className="w-full flex items-center justify-between text-xs font-semibold text-slate-700 bg-slate-100/90 hover:bg-slate-200/80 px-3 py-2 rounded-lg border border-slate-200 transition-colors"
+          >
+            <span className="flex items-center space-x-1.5">
+              <MessageSquarePlus className="w-3.5 h-3.5 text-rose-600" />
+              <span>Simulate Customer Reply (Multi-Turn Test)</span>
+            </span>
+            {showSimulator ? (
+              <ChevronUp className="w-3.5 h-3.5 text-slate-500" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+            )}
+          </button>
+
+          {showSimulator && (
+            <div className="mt-2.5 p-3 bg-white rounded-lg border border-slate-200 shadow-sm space-y-2">
+              <label className="block text-[11px] font-medium text-slate-600">
+                Send customer message as <span className="font-semibold text-slate-900">{customer?.name}</span>:
+              </label>
+              <textarea
+                rows={3}
+                value={followUpText}
+                onChange={(e) => setFollowUpText(e.target.value)}
+                placeholder="E.g., I tried charging with a 5V/1A adapter for 3 hours as suggested, but the screen is still black."
+                className="w-full text-xs p-2 rounded border border-slate-300 focus:outline-none focus:ring-1 focus:ring-rose-500 focus:border-rose-500"
+              />
+
+              {/* Quick sample pills */}
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleSendReply(
+                      'I completed the 5V/1A charging test for 3 hours and cleaned the pins with isopropyl alcohol, but the device still does not turn on. Here is a video proof of the unlit display.'
+                    )
+                  }
+                  disabled={isSubmitting}
+                  className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded border border-slate-200"
+                >
+                  ⚡ Charging Test Done (Still Broken)
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleSendReply(
+                      'I would like to exchange my ColorFit Pro 5 for the Jet Black variant as the Rose Gold color does not fit my preference. The box is unopened with seal intact.'
+                    )
+                  }
+                  disabled={isSubmitting}
+                  className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded border border-slate-200"
+                >
+                  🔄 Size / Color Exchange Request
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleSendReply(
+                      'I have verified Bluetooth permissions and uninstalled/reinstalled the NoiseFit app, but sleep tracking still shows 0 hours.'
+                    )
+                  }
+                  disabled={isSubmitting}
+                  className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded border border-slate-200"
+                >
+                  📊 Sleep Sync Test Done
+                </button>
+              </div>
+
+              <div className="flex justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={() => handleSendReply()}
+                  disabled={!followUpText.trim() || isSubmitting}
+                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded transition-colors"
+                >
+                  <Send className="w-3 h-3" />
+                  <span>{isSubmitting ? 'Sending...' : 'Send Message'}</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

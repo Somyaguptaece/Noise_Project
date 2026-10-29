@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { logger } from '../../utils/logger.js';
 import { AIDraftResponseSchema } from './schemas.js';
+import { executeToolCall } from '../tools.js';
 
 export class OpenAIProvider {
   constructor(apiKey) {
@@ -11,36 +12,42 @@ export class OpenAIProvider {
   async generateResolutionDraft(pipelineContext) {
     const { ticket, customer, order, product, retrievedPolicies, ruleEvaluation } = pipelineContext;
 
-    const systemPrompt = `You are Noise Resolve AI, a senior customer resolution assistant for Noise wearable devices.
-Generate a grounded draft reply for human agent review. Never fabricate facts, orders, or policies.
-Output valid JSON adhering to the specified format.`;
+    // Execute tool calling workflow
+    const toolCallRecords = [];
+    toolCallRecords.push(await executeToolCall('get_ticket_history', { ticket_id: ticket.ticketNumber || ticket.id }));
+    if (order?.orderNumber || ruleEvaluation.extractedOrderNumber) {
+      toolCallRecords.push(await executeToolCall('lookup_order', { order_id: order?.orderNumber || ruleEvaluation.extractedOrderNumber }));
+    }
+    toolCallRecords.push(await executeToolCall('search_support_policy', { query: `${ticket.category} ${ticket.subject}` }));
 
-    const userPrompt = `CONTEXT:
-Customer: ${JSON.stringify(customer)}
-Order: ${JSON.stringify(order)}
-Product: ${JSON.stringify(product)}
-Rule Evaluation: ${JSON.stringify(ruleEvaluation)}
-Retrieved Policy Excerpts: ${JSON.stringify(retrievedPolicies)}
+    const systemPrompt = `You are Noise Resolve AI, a customer support resolution copilot for Noise.
+Return a structured JSON object with separate fields for:
+- ticketSummary (string)
+- category (DELIVERY_DELAY | REFUND_REQUEST | RETURN_REQUEST | WARRANTY_CLAIM | DAMAGED_PRODUCT | BATTERY_CHARGING | BLUETOOTH_PAIRING | GENERAL_INQUIRY | MALICIOUS_INJECTION)
+- customerIntent (string)
+- identifiedOrderOrDevice (string or null)
+- missingInformation (string array)
+- draftReply (concise, professional customer-facing response)
+- internalNextAction (internal instructions for the support specialist)
+- evidence (array of { sourceType, sourceId, sourceTitle, excerpt, relevanceScore, explanation })
+- escalationFlag (boolean)
+- escalationReason (string or null)
+- requiresHumanReview (true)
+- priority (LOW | MEDIUM | HIGH | URGENT)
+- recommendedAction (string)
+- confidence (number 0.0-1.0)
+- policyFlags (string array)`;
+
+    const userPrompt = `TOOL CALLS RESULTS:
+${JSON.stringify(toolCallRecords, null, 2)}
+
+RULE EVALUATION:
+${JSON.stringify(ruleEvaluation, null, 2)}
 
 TICKET:
-Ticket #${ticket.ticketNumber}
-Subject: ${ticket.subject}
+Ticket #${ticket.ticketNumber} - ${ticket.subject}
 Messages:
-${(ticket.messages || []).map(m => `[${m.senderType}]: ${m.messageText}`).join('\n')}
-
-Output JSON format:
-{
-  "ticketSummary": "...",
-  "category": "...",
-  "priority": "LOW|MEDIUM|HIGH|URGENT",
-  "recommendedAction": "...",
-  "draftReply": "...",
-  "confidence": 0.95,
-  "requiresHumanReview": true,
-  "missingInformation": [],
-  "evidence": [{"sourceType": "POLICY|ORDER|CUSTOMER|PRODUCT|KNOWLEDGE_BASE", "sourceId": "...", "sourceTitle": "...", "excerpt": "...", "relevanceScore": 0.95, "explanation": "..."}],
-  "policyFlags": []
-}`;
+${(ticket.messages || []).map(m => `[${m.senderType}]: ${m.messageText}`).join('\n')}`;
 
     try {
       const completion = await this.client.chat.completions.create({
@@ -54,6 +61,7 @@ Output JSON format:
       });
 
       const parsed = JSON.parse(completion.choices[0].message.content);
+      parsed.toolCalls = toolCallRecords;
       const validated = AIDraftResponseSchema.parse(parsed);
       return validated;
     } catch (err) {

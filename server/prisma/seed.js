@@ -1078,6 +1078,76 @@ How to perform a clean factory reset:
           messageText: 'I wear thick frame glasses daily. Do the air conduction earhooks on Pure Pods interfere with spectacle temples?'
         }
       ]
+    },
+
+    // Case 23: Exchange Request (Replacement with variant/color) within 7-Day Window
+    {
+      ticketNumber: 'TCK-2026-1023',
+      customerId: customers[8].id, // Aditya Verma
+      orderId: orders[8].id,       // NOISE-ORD-90219 (Delivered 2 days ago, within 7-day window)
+      productId: products[0].id,
+      subject: 'Exchange Request: Want to swap ColorFit Pro 5 Max Jet Black for Vintage Brown edition',
+      category: 'RETURN_REQUEST',
+      priority: 'MEDIUM',
+      status: 'NEW',
+      aiStatus: 'PENDING',
+      messages: [
+        {
+          senderType: 'CUSTOMER',
+          senderName: 'Aditya Verma',
+          messageText: 'Hi Noise Support, I received my ColorFit Pro 5 Max (Order NOISE-ORD-90219) 2 days ago. The package seal is intact and the watch is completely unused. I realized I prefer the Vintage Brown edition over Jet Black. As this is within the 7-day replacement window, please guide me on how to arrange an exchange.'
+        }
+      ]
+    },
+
+    // Case 24: Multi-Turn Conversation with Quoted Email History & Video Proof
+    {
+      ticketNumber: 'TCK-2026-1024',
+      customerId: customers[0].id, // Aarav Sharma
+      orderId: orders[0].id,       // NOISE-ORD-90211
+      productId: products[0].id,
+      subject: 'Re: ColorFit Pro 5 Max not charging - 5V/1A troubleshooting test completed',
+      category: 'BATTERY_CHARGING',
+      priority: 'HIGH',
+      status: 'PROCESSING',
+      aiStatus: 'PENDING',
+      messages: [
+        {
+          senderType: 'CUSTOMER',
+          senderName: 'Aarav Sharma',
+          messageText: 'My new ColorFit Pro 5 Max watch will not charge or turn on after being unboxed.'
+        },
+        {
+          senderType: 'AGENT',
+          senderName: 'Sonia (Senior Support Specialist)',
+          messageText: 'Dear Aarav, Thank you for contacting Noise. Please charge the watch using a standard 5V/1A wall adapter for at least 3 hours. Avoid turbo fast chargers, and inspect the magnetic pins for any debris. Let us know if the display turns on after holding the power button for 10 seconds.'
+        },
+        {
+          senderType: 'CUSTOMER',
+          senderName: 'Aarav Sharma',
+          messageText: 'On Tue, Oct 27, 2026 at 3:15 PM Noise Support <support@gonoise.com> wrote:\n> Dear Aarav, Thank you for contacting Noise. Please charge the watch using a standard 5V/1A wall adapter...\n\nHi Sonia,\n\nI completed the troubleshooting steps as requested. I kept the watch on a verified 5V/1A adapter for 3.5 hours, and cleaned the magnetic pins with a dry cotton swab. The display remains completely black with no vibration or charging symbol.\n\nI have recorded a 20-second video demonstrating the watch plugged into the 5V/1A power source with no LED/screen response. Since this is a brand new watch under warranty, please initiate a doorstep warranty pickup and replacement unit.'
+        }
+      ]
+    },
+
+    // Case 25: Missing Sleep Data on Smartwatch
+    {
+      ticketNumber: 'TCK-2026-1025',
+      customerId: customers[7].id, // Sneha Reddy
+      orderId: orders[7].id,       // NOISE-ORD-90218
+      productId: products[5].id,   // Noise Vortex Plus
+      subject: 'Missing sleep data in NoiseFit app after wearing watch overnight',
+      category: 'BLUETOOTH_PAIRING',
+      priority: 'MEDIUM',
+      status: 'NEW',
+      aiStatus: 'PENDING',
+      messages: [
+        {
+          senderType: 'CUSTOMER',
+          senderName: 'Sneha Reddy',
+          messageText: 'Hello, I wore my Noise Vortex Plus to sleep last night with 24/7 heart rate monitoring switched on. In the morning, step counts and heart rate synced to the NoiseFit app, but the sleep tracking tab says "No sleep data recorded". I slept for over 7 hours. Why is the sleep data missing and how can I resolve the sync?'
+        }
+      ]
     }
   ];
 

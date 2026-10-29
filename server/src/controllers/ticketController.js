@@ -93,4 +93,30 @@ export class TicketController {
       next(err);
     }
   }
+
+  static async addMessage(req, res, next) {
+    try {
+      const { content, senderType, senderName, attachments } = req.body;
+      if (!content || typeof content !== 'string' || content.trim().length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Message content is required.'
+        });
+      }
+      const result = await TicketService.addMessage({
+        ticketId: req.params.id,
+        senderType: senderType || 'CUSTOMER',
+        senderName,
+        content,
+        attachments: attachments || []
+      });
+      res.status(201).json({
+        success: true,
+        message: 'Message added successfully and ticket state updated.',
+        data: result
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
 }

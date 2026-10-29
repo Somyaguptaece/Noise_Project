@@ -98,6 +98,20 @@ export function TicketWorkspacePage() {
     }
   };
 
+  const handleAddCustomerMessage = async (content) => {
+    setLoadingAction(true);
+    try {
+      await ticketService.addCustomerMessage(id, content, ticket.customer?.name || 'Customer');
+      const res = await ticketService.getTicketById(id);
+      setTicket(res.data);
+      showToast('Follow-up message added. Ticket state transitioned to PROCESSING.', 'info');
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
   if (loading || !ticket) {
     return (
       <div className="p-6 max-w-7xl mx-auto space-y-4">
@@ -120,6 +134,7 @@ export function TicketWorkspacePage() {
       onApproveDraft={handleApproveDraft}
       onRejectDraft={handleRejectDraft}
       onResolveTicket={handleResolveTicket}
+      onAddCustomerMessage={handleAddCustomerMessage}
     />
   );
 }
