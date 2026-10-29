@@ -4,6 +4,7 @@ import { BusinessRuleEngine } from './businessRuleEngine.js';
 import { AIProviderFactory } from './ai/aiProvider.js';
 import { AuditService } from './auditService.js';
 import { logger } from '../utils/logger.js';
+import { config } from '../config/index.js';
 
 const prisma = new PrismaClient();
 
@@ -108,6 +109,17 @@ export class AIPipelineService {
       try {
         draftResult = await aiProvider.generateResolutionDraft(pipelineContext);
       } catch (aiErr) {
+        // When AI_PROVIDER=gemini, do not silently fall back to mock output on API errors. Return a clear error.
+        if (config.aiProvider === 'gemini' || aiProvider.name === 'AI_GEMINI') {
+          const safeMessage = (aiErr.message || String(aiErr))
+            .replace(/key=[a-zA-Z0-9_\-]+/gi, 'key=[REDACTED]')
+            .replace(/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/gi, '[REDACTED_EMAIL]')
+            .replace(/\b\d{10}\b/g, '[REDACTED_PHONE]');
+
+          logger.error(`Live Gemini Provider generation failed without fallback: ${safeMessage}`);
+          throw new Error(`Live Gemini generation failed: ${safeMessage}`);
+        }
+
         logger.warn('Primary AI Provider generation encountered error, falling back to deterministic mock generator:', aiErr);
         // Fallback to deterministic mock provider
         const { MockAIProvider } = await import('./ai/mockProvider.js');

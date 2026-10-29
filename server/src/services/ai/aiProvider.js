@@ -9,8 +9,8 @@ export class AIProviderFactory {
     const providerType = (config.aiProvider || 'mock').toLowerCase();
 
     if (providerType === 'gemini' && config.geminiApiKey) {
-      logger.info('Using Gemini AI Provider');
-      return new GeminiAIProvider(config.geminiApiKey);
+      logger.info(`Using Gemini AI Provider with model: ${config.geminiModel || 'gemini-3.8-flash'}`);
+      return new GeminiAIProvider(config.geminiApiKey, config.geminiModel);
     }
 
     if (providerType === 'openai' && config.openaiApiKey) {

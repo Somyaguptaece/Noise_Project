@@ -1,13 +1,19 @@
 import request from 'supertest';
 import app from '../src/app.js';
 import { PrismaClient } from '@prisma/client';
+import { config } from '../src/config/index.js';
 
 const prisma = new PrismaClient();
 
 describe('End-to-End API Workflows & State Transitions', () => {
   let testTicketId;
+  let originalAiProvider;
 
   beforeAll(async () => {
+    originalAiProvider = config.aiProvider;
+    // Ensure deterministic mock provider is active for fast, reliable API integration tests
+    config.aiProvider = 'mock';
+
     // Find a ticket in NEW state from seeded database
     const ticket = await prisma.supportTicket.findFirst({
       where: { ticketNumber: 'TCK-2026-1001' }
@@ -18,6 +24,7 @@ describe('End-to-End API Workflows & State Transitions', () => {
   });
 
   afterAll(async () => {
+    config.aiProvider = originalAiProvider;
     await prisma.$disconnect();
   });
 

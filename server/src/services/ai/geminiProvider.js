@@ -4,16 +4,21 @@ import { AIDraftResponseSchema } from './schemas.js';
 import { executeToolCall } from '../tools.js';
 
 export class GeminiAIProvider {
-  constructor(apiKey) {
+  constructor(apiKey, modelName) {
     this.name = 'AI_GEMINI';
+    this.apiKey = apiKey;
+    this.modelName = modelName || process.env.GEMINI_MODEL || 'gemini-3.8-flash';
     this.client = new GoogleGenerativeAI(apiKey);
-    this.model = this.client.getGenerativeModel({
-      model: 'gemini-1.5-flash',
-      generationConfig: {
-        responseMimeType: 'application/json',
-        temperature: 0.2
-      }
-    });
+    this.model = this.client.getGenerativeModel(
+      {
+        model: this.modelName,
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.2
+        }
+      },
+      { timeout: 30000 }
+    );
   }
 
   async generateResolutionDraft(pipelineContext) {
@@ -72,8 +77,16 @@ Generate the complete JSON draft matching the required schema.`;
       const validated = AIDraftResponseSchema.parse(parsed);
       return validated;
     } catch (err) {
-      logger.error('Gemini draft generation error:', err);
-      throw err;
+      // Redact sensitive keys, tokens, emails, phone numbers before logging or throwing
+      const sanitizedMessage = (err.message || String(err))
+        .replace(/key=[a-zA-Z0-9_\-]+/gi, 'key=[REDACTED]')
+        .replace(/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/gi, '[REDACTED_EMAIL]')
+        .replace(/\b\d{10}\b/g, '[REDACTED_PHONE]');
+
+      logger.error(`Gemini draft generation error (${this.modelName}): ${sanitizedMessage}`);
+      const cleanError = new Error(`Gemini API Error (${this.modelName}): ${sanitizedMessage}`);
+      cleanError.status = err.status || 502;
+      throw cleanError;
     }
   }
 }
