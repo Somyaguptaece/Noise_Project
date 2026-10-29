@@ -66,4 +66,65 @@ describe('Business Rule Engine & Security Guardrails', () => {
       expect(evaluation.flags.some(f => f.includes('Malicious prompt injection'))).toBe(true);
     });
   });
+
+  describe('Sleep Data Classification & Context Grounding', () => {
+    test('does not classify a missing-sleep-data complaint as DELIVERY_DELAY', () => {
+      const ticket = {
+        subject: 'Missing sleep data in NoiseFit app after wearing watch overnight',
+        category: 'BLUETOOTH_PAIRING',
+        messages: [
+          {
+            senderType: 'CUSTOMER',
+            messageText: 'I wore my watch to sleep last night with heart rate monitoring switched on. In the morning, step counts synced, but the sleep tracking tab says "No sleep data recorded". Why is the sleep data missing?'
+          }
+        ]
+      };
+      const result = BusinessRuleEngine.extractEntities(ticket);
+      expect(result.detectedCategory).toBe('BLUETOOTH_PAIRING');
+      expect(result.multiCategories).toContain('BLUETOOTH_PAIRING');
+      expect(result.multiCategories).not.toContain('DELIVERY_DELAY');
+    });
+
+    test('does not classify luna ring sleep tracking sync issue as DELIVERY_DELAY', () => {
+      const ticket = {
+        subject: 'Luna Ring sleep stage tracking did not sync last night',
+        category: 'BLUETOOTH_PAIRING',
+        messages: [
+          {
+            senderType: 'CUSTOMER',
+            messageText: 'My Luna Ring was charged to 80% when I went to sleep, but this morning the NoiseFit app only shows blank sleep charts. The ring green sensor was flashing. How can I force sync?'
+          }
+        ]
+      };
+      const result = BusinessRuleEngine.extractEntities(ticket);
+      expect(result.detectedCategory).toBe('BLUETOOTH_PAIRING');
+      expect(result.multiCategories).not.toContain('DELIVERY_DELAY');
+    });
+
+    test('correctly detects both categories when a customer reports both sleep data sync and courier delivery delay', () => {
+      const ticket = {
+        subject: 'Sleep tracking missing and courier package delayed',
+        messages: [
+          {
+            senderType: 'CUSTOMER',
+            messageText: 'My sleep data did not sync to the NoiseFit app today. Also, my second order NOISE-ORD-90212 is delayed in transit with BlueDart courier.'
+          }
+        ]
+      };
+      const result = BusinessRuleEngine.extractEntities(ticket);
+      expect(result.multiCategories).toContain('BLUETOOTH_PAIRING');
+      expect(result.multiCategories).toContain('DELIVERY_DELAY');
+    });
+
+    test('does not flag contradiction for sleep tracking complaint on delivered order', () => {
+      const customerText = 'My smartwatch sleep tracking data is missing after wearing it overnight.';
+      const order = {
+        orderNumber: 'NOISE-ORD-90218',
+        orderStatus: 'DELIVERED',
+        carrier: 'Delhivery'
+      };
+      const contradictions = BusinessRuleEngine.detectContradictions(customerText, order);
+      expect(contradictions).toHaveLength(0);
+    });
+  });
 });

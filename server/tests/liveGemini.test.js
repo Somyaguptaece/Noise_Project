@@ -5,7 +5,11 @@ describe('Live Gemini API Integration Check', () => {
   const hasKey = Boolean(config.geminiApiKey && config.geminiApiKey.trim());
 
   (hasKey ? test : test.skip)('attempts live call to gemini-3.8-flash and verifies response or clear demand error', async () => {
-    const provider = new GeminiAIProvider(config.geminiApiKey, 'gemini-3.8-flash');
+    const provider = new GeminiAIProvider(config.geminiApiKey, 'gemini-3.8-flash', {
+      timeoutMs: 6000,
+      maxRetries: 1,
+      baseDelayMs: 500
+    });
     expect(provider.modelName).toBe('gemini-3.8-flash');
 
     const context = {

@@ -3,11 +3,42 @@ import { logger } from '../../utils/logger.js';
 import { AIDraftResponseSchema } from './schemas.js';
 import { executeToolCall } from '../tools.js';
 
+export function isTransientError(err) {
+  if (!err) return false;
+  const status = err.status || (err.response && err.response.status);
+  if ([429, 500, 502, 503, 504].includes(status)) return true;
+
+  const msg = (err.message || String(err)).toLowerCase();
+  if (/\b(429|500|502|503|504)\b/.test(msg)) return true;
+  if (msg.includes('high demand') || msg.includes('spikes in demand') || msg.includes('temporarily unavailable')) return true;
+  if (msg.includes('aborted') || msg.includes('timeout') || msg.includes('fetch failed') || msg.includes('econnreset') || msg.includes('etimedout')) return true;
+  if (err.name === 'AbortError') return true;
+
+  return false;
+}
+
+export function sanitizeError(err) {
+  const rawMessage = (err && (err.message || String(err))) || 'Unknown upstream error';
+  return rawMessage
+    .replace(/key=[a-zA-Z0-9_\-]+/gi, 'key=[REDACTED]')
+    .replace(/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/gi, '[REDACTED_EMAIL]')
+    .replace(/\b\d{10}\b/g, '[REDACTED_PHONE]');
+}
+
+export function calculateBackoffDelay(attempt, baseDelayMs = 1500, maxDelayMs = 8000, jitterMs = 800) {
+  const exponential = baseDelayMs * Math.pow(2, attempt);
+  const jitter = Math.random() * jitterMs;
+  return Math.min(maxDelayMs, exponential + jitter);
+}
+
 export class GeminiAIProvider {
-  constructor(apiKey, modelName) {
+  constructor(apiKey, modelName, options = {}) {
     this.name = 'AI_GEMINI';
     this.apiKey = apiKey;
     this.modelName = modelName || process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+    this.timeoutMs = options.timeoutMs || parseInt(process.env.GEMINI_TIMEOUT_MS, 10) || 20000;
+    this.maxRetries = options.maxRetries !== undefined ? options.maxRetries : (parseInt(process.env.GEMINI_MAX_RETRIES, 10) || 2);
+    this.baseDelayMs = options.baseDelayMs || 1500;
     this.client = new GoogleGenerativeAI(apiKey);
     this.model = this.client.getGenerativeModel(
       {
@@ -17,7 +48,7 @@ export class GeminiAIProvider {
           temperature: 0.2
         }
       },
-      { timeout: 30000 }
+      { timeout: this.timeoutMs }
     );
   }
 
@@ -50,7 +81,11 @@ Generate a grounded response adhering to these exact requirements:
    - priority: LOW, MEDIUM, HIGH, URGENT
    - recommendedAction: string
    - confidence: float 0.0-1.0
-   - policyFlags: string array`;
+   - policyFlags: string array
+
+CRITICAL CATEGORY CLASSIFICATION RULES:
+- A complaint about missing sleep data, sleep stage tracking, sleep scores, or app synchronization MUST be classified under BLUETOOTH_PAIRING (health metrics sync), NOT DELIVERY_DELAY, unless the customer explicitly reports a shipping, courier, or parcel delivery failure.
+- Never classify sleep tracking inquiries or health sync issues as DELIVERY_DELAY.`;
 
     const prompt = `TOOL CALLS EXECUTED:
 ${JSON.stringify(toolCallRecords, null, 2)}
@@ -65,28 +100,46 @@ ${(ticket.messages || []).map(m => `[${m.senderType}]: ${m.messageText}`).join('
 
 Generate the complete JSON draft matching the required schema.`;
 
-    try {
-      const response = await this.model.generateContent([
-        { text: systemPrompt },
-        { text: prompt }
-      ]);
+    let lastError = null;
+    const maxAttempts = this.maxRetries + 1;
 
-      const text = response.response.text();
-      const parsed = JSON.parse(text);
-      parsed.toolCalls = toolCallRecords;
-      const validated = AIDraftResponseSchema.parse(parsed);
-      return validated;
-    } catch (err) {
-      // Redact sensitive keys, tokens, emails, phone numbers before logging or throwing
-      const sanitizedMessage = (err.message || String(err))
-        .replace(/key=[a-zA-Z0-9_\-]+/gi, 'key=[REDACTED]')
-        .replace(/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/gi, '[REDACTED_EMAIL]')
-        .replace(/\b\d{10}\b/g, '[REDACTED_PHONE]');
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const response = await this.model.generateContent([
+          { text: systemPrompt },
+          { text: prompt }
+        ]);
 
-      logger.error(`Gemini draft generation error (${this.modelName}): ${sanitizedMessage}`);
-      const cleanError = new Error(`Gemini API Error (${this.modelName}): ${sanitizedMessage}`);
-      cleanError.status = err.status || 502;
-      throw cleanError;
+        const text = response.response.text();
+        const parsed = JSON.parse(text);
+        parsed.toolCalls = toolCallRecords;
+        const validated = AIDraftResponseSchema.parse(parsed);
+        return validated;
+      } catch (err) {
+        lastError = err;
+        const sanitizedMsg = sanitizeError(err);
+        const transient = isTransientError(err);
+
+        if (transient && attempt < maxAttempts - 1) {
+          const delay = calculateBackoffDelay(attempt, this.baseDelayMs);
+          logger.warn(`Gemini API transient failure on attempt ${attempt + 1}/${maxAttempts} (${this.modelName}): ${sanitizedMsg}. Retrying in ${Math.round(delay)}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+
+        logger.error(`Gemini draft generation failed (${this.modelName}) after ${attempt + 1} attempt(s): ${sanitizedMsg}`);
+        break;
+      }
     }
+
+    const sanitizedLast = sanitizeError(lastError);
+    let friendlyReason = sanitizedLast;
+    if (isTransientError(lastError)) {
+      friendlyReason = `Service is temporarily unavailable due to upstream high demand or request timeout after ${maxAttempts} attempts. Please try again in a few moments.`;
+    }
+
+    const cleanError = new Error(`Gemini API Error (${this.modelName}): ${friendlyReason}`);
+    cleanError.status = (lastError && lastError.status) || 503;
+    throw cleanError;
   }
 }

@@ -119,15 +119,34 @@ export class BusinessRuleEngine {
     }
 
     // Issue 3: Missing sleep tracking data
-    if (lower.includes('sleep') || lower.includes('sleep score') || lower.includes('stages') || lower.includes('rem sleep') || lower.includes('sleep data')) {
+    const hasSleepIssue = lower.includes('sleep') || lower.includes('sleep score') || lower.includes('stages') || lower.includes('rem sleep') || lower.includes('sleep data');
+    if (hasSleepIssue) {
       if (!detected.includes('BLUETOOTH_PAIRING')) {
         detected.push('BLUETOOTH_PAIRING'); // Synced via Bluetooth sensor health tracking
       }
     }
 
     // Issue 4: Shipping & Delivery Delay
-    if (lower.includes('stuck') || lower.includes('delay') || lower.includes('shipping') || lower.includes('courier') || lower.includes('not delivered') || lower.includes('tracking')) {
+    // Ensure health/sleep sensor tracking, fitness tracking, or app sync delays are not misclassified as shipping delivery delay.
+    const hasExplicitShippingIssue =
+      lower.includes('shipping') || lower.includes('courier') || lower.includes('dispatch') ||
+      lower.includes('in transit') || lower.includes('out for delivery') || lower.includes('awb') ||
+      lower.includes('shipment') || lower.includes('order tracking') || lower.includes('shipment tracking') ||
+      lower.includes('courier tracking') || lower.includes('package tracking') || lower.includes('awb tracking') ||
+      lower.includes('delivery delay') || lower.includes('delayed delivery') || lower.includes('shipping delay') ||
+      lower.includes('shipment delay') || lower.includes('delivery stuck') || lower.includes('package stuck') ||
+      lower.includes('where is my order') || lower.includes('package not delivered') || lower.includes('order not delivered') ||
+      lower.includes('package delayed') || lower.includes('delayed package') || lower.includes('delayed shipment') ||
+      lower.includes('delayed order') || lower.includes('order delayed') ||
+      (lower.includes('delivery') && (lower.includes('delay') || lower.includes('stuck') || lower.includes('late') || lower.includes('status') || lower.includes('pending')));
+
+    if (hasExplicitShippingIssue) {
       detected.push('DELIVERY_DELAY');
+    } else if (!hasSleepIssue) {
+      // General delay/tracking only applies if NOT a sleep or health tracking complaint
+      if (lower.includes('not delivered') || lower.includes('never delivered') || lower.includes('stuck in transit') || (lower.includes('tracking') && (lower.includes('order') || lower.includes('package') || lower.includes('parcel')))) {
+        detected.push('DELIVERY_DELAY');
+      }
     }
 
     // Issue 5: Exchange Request (Size / Color)
@@ -178,7 +197,18 @@ export class BusinessRuleEngine {
     if (this.detectPromptInjection(text)) {
       detectedCategory = 'MALICIOUS_INJECTION';
     } else if (multiCategories.length > 0) {
-      detectedCategory = multiCategories[0];
+      // If customer reports a sleep issue without explicit shipping terms, ensure BLUETOOTH_PAIRING takes precedence
+      const hasSleep = lower.includes('sleep') || lower.includes('sleep score') || lower.includes('stages') || lower.includes('rem sleep') || lower.includes('sleep data');
+      const hasExplicitShipping =
+        lower.includes('shipping') || lower.includes('courier') || lower.includes('dispatch') ||
+        lower.includes('in transit') || lower.includes('out for delivery') || lower.includes('awb') ||
+        lower.includes('delivery delay') || lower.includes('delayed delivery') || lower.includes('package not delivered');
+
+      if (hasSleep && !hasExplicitShipping) {
+        detectedCategory = 'BLUETOOTH_PAIRING';
+      } else {
+        detectedCategory = multiCategories[0];
+      }
     }
 
     return {
@@ -226,7 +256,11 @@ export class BusinessRuleEngine {
     const lower = customerText.toLowerCase();
 
     // Contradiction 1: Customer claims order was not delivered, but courier status is DELIVERED
-    if ((lower.includes('never received') || lower.includes('not delivered') || lower.includes('where is my order')) && order.orderStatus === 'DELIVERED') {
+    const hasSleep = lower.includes('sleep') || lower.includes('sleep score') || lower.includes('sleep data');
+    const isDenialOfDelivery = (lower.includes('never received') || lower.includes('not delivered') || lower.includes('where is my order')) &&
+      (!hasSleep || lower.includes('package') || lower.includes('order') || lower.includes('parcel'));
+
+    if (isDenialOfDelivery && order.orderStatus === 'DELIVERED') {
       contradictions.push(`Contradiction: Customer claims package was not delivered, but official carrier tracking (${order.carrier || 'Logistics'}) records status as DELIVERED.`);
     }
 
