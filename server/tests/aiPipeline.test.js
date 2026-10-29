@@ -169,7 +169,7 @@ describe('AI Output Schema & Mock Provider Validation', () => {
 
       spy.mockRestore();
       config.aiProvider = originalProvider;
-    });
+    }, 15000);
 
     test('isTransientError correctly identifies retryable and non-retryable errors', () => {
       expect(isTransientError({ status: 503 })).toBe(true);

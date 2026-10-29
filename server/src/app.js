@@ -35,7 +35,7 @@ if (process.env.NODE_ENV !== 'test') {
   app.use(morgan('dev'));
 }
 
-// API Routes
+// API Routes (Mounted on both /api and root to prevent any URL-prefix 404 mismatches)
 app.use('/api', healthRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/tickets', ticketRoutes);
@@ -44,6 +44,14 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/knowledge-base', knowledgeRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/settings', settingsRoutes);
+
+app.use('/dashboard', dashboardRoutes);
+app.use('/tickets', ticketRoutes);
+app.use('/customers', customerRoutes);
+app.use('/orders', orderRoutes);
+app.use('/knowledge-base', knowledgeRoutes);
+app.use('/analytics', analyticsRoutes);
+app.use('/settings', settingsRoutes);
 
 // 404 Handler for unhandled /api/* routes
 app.use('/api/*', (req, res) => {
