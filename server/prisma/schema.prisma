@@ -2,7 +2,7 @@
 // Supports SQLite by default for zero-friction setup, easily switchable to PostgreSQL
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
