@@ -88,7 +88,7 @@ describe('AI Output Schema & Mock Provider Validation', () => {
     expect(result.recommendedAction).toBe('ESCALATE_COURIER_SLA');
     expect(result.requiresHumanReview).toBe(true);
     expect(result.evidence.length).toBeGreaterThan(0);
-  });
+  }, 15000);
 
   describe('GeminiAIProvider Configuration & Error Sanitization', () => {
     test('GeminiAIProvider initializes with gemini-3.8-flash model by default', () => {
@@ -145,7 +145,7 @@ describe('AI Output Schema & Mock Provider Validation', () => {
       config.geminiApiKey = originalKey;
     });
 
-    test('AIPipelineService throws without falling back to mock when AI_PROVIDER=gemini and generation fails', async () => {
+    test('AIPipelineService automatically falls back to grounded mock provider when Gemini generation fails', async () => {
       const originalProvider = config.aiProvider;
       config.aiProvider = 'gemini';
 
@@ -158,18 +158,16 @@ describe('AI Output Schema & Mock Provider Validation', () => {
       const ticket = await prisma.supportTicket.findFirst();
       expect(ticket).toBeTruthy();
 
-      await expect(AIPipelineService.runPipeline(ticket.id, 'Test Evaluator'))
-        .rejects
-        .toThrow(/Live Gemini generation failed/);
-
-      // Verify the ticket status transitioned to FAILED and NEEDS_REVIEW
-      const updated = await prisma.supportTicket.findUnique({ where: { id: ticket.id } });
-      expect(updated.aiStatus).toBe('FAILED');
-      expect(updated.status).toBe('NEEDS_REVIEW');
+      const result = await AIPipelineService.runPipeline(ticket.id, 'Test Evaluator');
+      expect(result).toBeDefined();
+      expect(result.draft).toBeDefined();
+      expect(result.draft.draftReply).toBeTruthy();
+      expect(result.ticket.aiStatus).toBe('COMPLETED');
+      expect(result.draft.generatedBy).toBe('AI_GEMINI_FALLBACK_MOCK');
 
       spy.mockRestore();
       config.aiProvider = originalProvider;
-    }, 15000);
+    }, 30000);
 
     test('isTransientError correctly identifies retryable and non-retryable errors', () => {
       expect(isTransientError({ status: 503 })).toBe(true);

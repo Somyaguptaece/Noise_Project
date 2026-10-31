@@ -105,28 +105,26 @@ export class AIPipelineService {
       // Stage 5: Resolution Generation via replaceable AI Provider
       const aiProvider = AIProviderFactory.getProvider();
       let draftResult;
+      let isFallback = false;
 
       try {
         draftResult = await aiProvider.generateResolutionDraft(pipelineContext);
       } catch (aiErr) {
-        // When AI_PROVIDER=gemini, do not silently fall back to mock output on API errors unless explicitly enabled.
-        if ((config.aiProvider === 'gemini' || aiProvider.name === 'AI_GEMINI') && process.env.ALLOW_AI_FALLBACK !== 'true') {
-          const safeMessage = (aiErr.message || String(aiErr))
-            .replace(/key=[a-zA-Z0-9_\-]+/gi, 'key=[REDACTED]')
-            .replace(/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/gi, '[REDACTED_EMAIL]')
-            .replace(/\b\d{10}\b/g, '[REDACTED_PHONE]');
+        const safeMessage = (aiErr.message || String(aiErr))
+          .replace(/key=[a-zA-Z0-9_\-]+/gi, 'key=[REDACTED]')
+          .replace(/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/gi, '[REDACTED_EMAIL]')
+          .replace(/\b\d{10}\b/g, '[REDACTED_PHONE]');
 
-          logger.error(`Live Gemini Provider generation failed without fallback: ${safeMessage}`);
-          throw new Error(`Live Gemini generation failed: ${safeMessage}`);
-        }
+        logger.warn(`Primary AI Provider (${aiProvider.name}) encountered error, automatically falling back to deterministic knowledge engine: ${safeMessage}`);
 
-        logger.warn('Primary AI Provider generation encountered error, falling back to deterministic mock generator:', aiErr);
         // Fallback to deterministic mock provider
         const { MockAIProvider } = await import('./ai/mockProvider.js');
         const fallbackProvider = new MockAIProvider();
         draftResult = await fallbackProvider.generateResolutionDraft(pipelineContext);
+        isFallback = true;
+
         if (!draftResult.policyFlags) draftResult.policyFlags = [];
-        draftResult.policyFlags.push('Notice: Draft generated using Grounded Knowledge Engine due to temporary upstream AI provider downtime.');
+        draftResult.policyFlags.push('Notice: Grounded draft generated via Knowledge Engine (Upstream Gemini API temporarily unavailable).');
       }
 
       // Combine retrieved evidence and order evidence
@@ -185,7 +183,7 @@ export class AIPipelineService {
           evidenceCitations: JSON.stringify(finalEvidence),
           policyFlags: JSON.stringify(combinedFlags),
           toolCalls: JSON.stringify(draftResult.toolCalls || []),
-          generatedBy: aiProvider.name
+          generatedBy: isFallback ? `${aiProvider.name}_FALLBACK_MOCK` : (aiProvider.name || 'AI_MOCK')
         }
       });
 
@@ -213,7 +211,7 @@ export class AIPipelineService {
         ticketId: ticket.id,
         eventType: 'DRAFT_GENERATED',
         actorType: 'AI',
-        actorName: `Noise Resolve AI (${aiProvider.name})`,
+        actorName: isFallback ? `Noise Resolve AI (${aiProvider.name} -> Fallback)` : `Noise Resolve AI (${aiProvider.name})`,
         metadata: {
           draftId: createdDraft.id,
           action: draftResult.recommendedAction,
