@@ -109,8 +109,8 @@ export class AIPipelineService {
       try {
         draftResult = await aiProvider.generateResolutionDraft(pipelineContext);
       } catch (aiErr) {
-        // When AI_PROVIDER=gemini, do not silently fall back to mock output on API errors. Return a clear error.
-        if (config.aiProvider === 'gemini' || aiProvider.name === 'AI_GEMINI') {
+        // When AI_PROVIDER=gemini, do not silently fall back to mock output on API errors unless explicitly enabled.
+        if ((config.aiProvider === 'gemini' || aiProvider.name === 'AI_GEMINI') && process.env.ALLOW_AI_FALLBACK !== 'true') {
           const safeMessage = (aiErr.message || String(aiErr))
             .replace(/key=[a-zA-Z0-9_\-]+/gi, 'key=[REDACTED]')
             .replace(/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/gi, '[REDACTED_EMAIL]')
@@ -125,6 +125,8 @@ export class AIPipelineService {
         const { MockAIProvider } = await import('./ai/mockProvider.js');
         const fallbackProvider = new MockAIProvider();
         draftResult = await fallbackProvider.generateResolutionDraft(pipelineContext);
+        if (!draftResult.policyFlags) draftResult.policyFlags = [];
+        draftResult.policyFlags.push('Notice: Draft generated using Grounded Knowledge Engine due to temporary upstream AI provider downtime.');
       }
 
       // Combine retrieved evidence and order evidence

@@ -8,6 +8,7 @@ const router = Router();
 router.get('/', TicketController.list);
 router.get('/:id', TicketController.getById);
 router.post('/:id/messages', TicketController.addMessage);
+router.get('/:id/generate-draft', TicketController.generateDraft);
 router.post('/:id/generate-draft', TicketController.generateDraft);
 router.get('/:id/evidence', TicketController.getEvidence);
 router.patch('/:id/draft', validateBody(DraftEditSchema), TicketController.editDraft);
